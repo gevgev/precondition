@@ -1,0 +1,11 @@
+*.txt
+*.log
+*.zip
+tmp/
+precondition
+test.out
+event/
+*.gzip
+cdw-viewership-reports/
+viewership-report*
+build-ec2/
