@@ -31,6 +31,7 @@ var (
 
 	verbose         bool
 	msoListFilename string
+	daapOnly        bool
 
 	msoLookup map[string]string
 	msoList   []msoType
@@ -51,6 +52,8 @@ func init() {
 
 	flagMsoFileName := flag.String("m", "mso-list.csv", "Filename for `MSO` list")
 	flagVerbose := flag.Bool("v", false, "Verbose")
+
+	flagDaapOnly := flag.Bool("D", false, "Check only DaaP reports date")
 
 	flag.Parse()
 
@@ -74,6 +77,7 @@ func init() {
 
 	msoListFilename = *flagMsoFileName
 	verbose = *flagVerbose
+	daapOnly = *flagDaapOnly
 
 	msoList, msoLookup = getMsoNamesList()
 }
@@ -275,6 +279,12 @@ func main() {
 
 	var foundDaap, foundCDW bool
 	var maxAvailableDate, lastProcessedDate string
+
+	if daapOnly {
+		foundDaap, lastProcessedDate = getLastDateFromDaap()
+		fmt.Println(foundDaap, lastProcessedDate)
+		os.Exit(0)
+	}
 
 	wg.Add(2)
 
