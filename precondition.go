@@ -216,34 +216,44 @@ func getLastDateFromDaap() (bool, string) {
 }
 
 // getLastAvailable looks up for the last date available on CDW
-func getLastAvailable() string {
-
-	// TODO remove return
-	return ""
+func getLastAvailable() (bool, string) {
 
 	lastDate := ""
-	//	found := false
+	found := false
 	date := time.Now()
 
 	// Starting from today
 	for {
 		lastDate = buildDatePrefix(date)
-		if verbose {
-			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
+		msoCount := 0
+		// for each MSO
+		for _, mso := range msoList {
 
-		}
-		objects := getS3Objects(cdwRegion, cdwBucketName, cdwPrefix, true)
+			prefix := cdwPrefix + "/" + mso.Code + "/delta"
+			objects := getS3Objects(cdwRegion, cdwBucketName, prefix, true)
 
-		for _, key := range objects.Contents {
-			// iterate through the list to match the dates range/mso name
-			// using the constracted below lookup string
-			if verbose {
-				log.Println("Key: ", *key.Key)
+			for _, key := range objects.Contents {
+				// iterate through the list to match the dates range/mso name
+				// using the constracted below lookup string
+				if verbose {
+					log.Println("Key: ", *key.Key)
+				}
+				if strings.Contains(*key.Key, "_"+lastDate) {
+					msoCount++
+				}
 			}
-
+		}
+		if msoCount == len(msoList) {
+			found = true
+			break
+		} else {
+			date = date.AddDate(0, 0, -1)
+			if gotToFar(date) {
+				break
+			}
 		}
 	}
-	return ""
+	return found, lastDate
 }
 
 func main() {
@@ -252,9 +262,9 @@ func main() {
 		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -v %v\n",
 			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, verbose)
 	}
-	found, lastProcessedDate := getLastDateFromDaap()
+	foundDaap, lastProcessedDate := getLastDateFromDaap()
 
-	maxAvailableDate := getLastAvailable()
+	foundCDW, maxAvailableDate := getLastAvailable()
 
-	fmt.Println(found, lastProcessedDate, maxAvailableDate)
+	fmt.Println(foundDaap, lastProcessedDate, foundCDW, maxAvailableDate)
 }
