@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -32,7 +33,7 @@ var (
 	msoListFilename string
 
 	msoLookup map[string]string
-	msoList   []MsoType
+	msoList   []msoType
 )
 
 func init() {
@@ -77,14 +78,14 @@ func init() {
 	msoList, msoLookup = getMsoNamesList()
 }
 
-type MsoType struct {
+type msoType struct {
 	Code string
 	Name string
 }
 
 // getMsoNamesList reads the list of MSO's and initializes the mso lookup map and array
-func getMsoNamesList() ([]MsoType, map[string]string) {
-	msoList := []MsoType{}
+func getMsoNamesList() ([]msoType, map[string]string) {
+	msoList := []msoType{}
 	msoLookup := make(map[string]string)
 
 	msoFile, err := os.Open(msoListFilename)
@@ -101,7 +102,7 @@ func getMsoNamesList() ([]MsoType, map[string]string) {
 	}
 
 	for _, record := range records {
-		msoList = append(msoList, MsoType{record[0], record[1]})
+		msoList = append(msoList, msoType{record[0], record[1]})
 		msoLookup[record[0]] = record[1]
 	}
 	return msoList, msoLookup
@@ -257,14 +258,29 @@ func getLastAvailable() (bool, string) {
 }
 
 func main() {
+	var wg sync.WaitGroup
 
 	if verbose {
 		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -v %v\n",
 			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, verbose)
 	}
-	foundDaap, lastProcessedDate := getLastDateFromDaap()
 
-	foundCDW, maxAvailableDate := getLastAvailable()
+	var foundDaap, foundCDW bool
+	var maxAvailableDate, lastProcessedDate string
+
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		foundDaap, lastProcessedDate = getLastDateFromDaap()
+	}()
+
+	go func() {
+		defer wg.Done()
+		foundCDW, maxAvailableDate = getLastAvailable()
+	}()
+
+	wg.Wait()
 
 	fmt.Println(foundDaap, lastProcessedDate, foundCDW, maxAvailableDate)
 }
