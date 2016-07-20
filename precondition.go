@@ -164,6 +164,12 @@ func buildDatePrefix(date time.Time) string {
 	return fmt.Sprintf("%04d%02d%02d", yy, mm, dd)
 }
 
+func formatOutputDate(date time.Time) string {
+	year, month, day := date.Date()
+
+	return fmt.Sprintf("%4d-%02d-%02d", year, int(month), day)
+}
+
 // getLastDateFromDaap looks up when was the last successfull run of Daap
 func getLastDateFromDaap() (bool, string) {
 
@@ -204,6 +210,7 @@ func getLastDateFromDaap() (bool, string) {
 		}
 
 		if found {
+			lastDate = formatOutputDate(date)
 			break
 		} else {
 			date = date.AddDate(0, 0, -1)
@@ -245,6 +252,7 @@ func getLastAvailable() (bool, string) {
 			}
 		}
 		if msoCount == len(msoList) {
+			lastDate = formatOutputDate(date)
 			found = true
 			break
 		} else {
