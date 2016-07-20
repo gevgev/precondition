@@ -176,7 +176,11 @@ func formatOutputDate(date time.Time) string {
 
 // getLastDateFromDaap looks up when was the last successfull run of Daap
 func getLastDateFromDaap() (bool, string) {
-
+	// offset is for aggregated report count = len(mso-list)+1 (aggregated report)
+	var offset int
+	if daapOnly {
+		offset = 1
+	}
 	lastDate := ""
 	found := false
 	date := time.Now()
@@ -188,7 +192,7 @@ func getLastDateFromDaap() (bool, string) {
 
 		}
 		objects := getS3Objects(daapRegion, daapBucketName, daapPrefix+"/"+lastDate, false)
-		if len(objects.Contents) != len(msoList) {
+		if len(objects.Contents) != len(msoList)+offset {
 			date = date.AddDate(0, 0, -1)
 			if gotToFar(date) {
 				break
@@ -214,7 +218,8 @@ func getLastDateFromDaap() (bool, string) {
 		}
 
 		if found {
-			lastDate = formatOutputDate(date)
+			// That was the last successfull run, now add one day after
+			lastDate = formatOutputDate(date.AddDate(0, 0, 1))
 			break
 		} else {
 			date = date.AddDate(0, 0, -1)
