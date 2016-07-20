@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -25,74 +28,12 @@ var (
 	daapRegion string
 	cdwRegion  string
 
-	verbose bool
+	verbose         bool
+	msoListFilename string
+
+	msoLookup map[string]string
+	msoList   []MsoType
 )
-
-func getS3Objects(regionName, bucketName, prefix string, cdw bool) *s3.ListObjectsOutput {
-	var s *session.Session
-
-	if cdw {
-		s = session.New(&aws.Config{
-			Region:      aws.String(regionName),
-			Credentials: credentials.NewStaticCredentials(cdwAwsAccessKey, cdwAwsSecretKey, ""),
-		})
-	} else {
-		s = session.New(&aws.Config{
-			Region: aws.String(regionName),
-		})
-
-	}
-
-	svc := s3.New(s)
-
-	if verbose {
-		fmt.Printf("region: %s, bucket: %s, prefix: %s \n", regionName, bucketName, prefix)
-	}
-
-	params := &s3.ListObjectsInput{
-		Bucket: aws.String(bucketName),
-		Prefix: aws.String(prefix),
-	}
-
-	// Get the list of all objects
-	resp, err := svc.ListObjects(params)
-	if err != nil {
-		log.Println("Failed to list objects: ", err)
-		os.Exit(-1)
-	}
-
-	log.Println("Number of objects: ", len(resp.Contents))
-	return resp
-}
-
-func getLastDateFromDaap() string {
-
-	objects := getS3Objects(daapRegion, daapBucketName, daapPrefix, false)
-	for _, key := range objects.Contents {
-		// iterate through the list to match the dates range/mso name
-		// using the constracted below lookup string
-
-		if verbose {
-			log.Println("Key: ", *key.Key)
-		}
-	}
-
-	return ""
-}
-
-func getLastAvailable() string {
-
-	objects := getS3Objects(cdwRegion, cdwBucketName, cdwPrefix, true)
-	for _, key := range objects.Contents {
-		// iterate through the list to match the dates range/mso name
-		// using the constracted below lookup string
-
-		if verbose {
-			log.Println("Key: ", *key.Key)
-		}
-	}
-	return ""
-}
 
 func init() {
 	flagCdwAwsAccessKey := flag.String("K", "", "AWS Access Key for CDW S3")
@@ -107,6 +48,7 @@ func init() {
 	flagDaapRegion := flag.String("dr", "us-west-2", "Daap S3 Region")
 	flagCdwRegion := flag.String("cr", "us-east-1", "CDW S3 Region")
 
+	flagMsoFileName := flag.String("m", "mso-list.csv", "Filename for `MSO` list")
 	flagVerbose := flag.Bool("v", false, "Verbose")
 
 	flag.Parse()
@@ -129,7 +71,179 @@ func init() {
 	cdwRegion = *flagCdwRegion
 	daapRegion = *flagDaapRegion
 
+	msoListFilename = *flagMsoFileName
 	verbose = *flagVerbose
+
+	msoList, msoLookup = getMsoNamesList()
+}
+
+type MsoType struct {
+	Code string
+	Name string
+}
+
+// getMsoNamesList reads the list of MSO's and initializes the mso lookup map and array
+func getMsoNamesList() ([]MsoType, map[string]string) {
+	msoList := []MsoType{}
+	msoLookup := make(map[string]string)
+
+	msoFile, err := os.Open(msoListFilename)
+	if err != nil {
+		log.Fatalf("Could not open Mso List file: %s, Error: %s\n", msoListFilename, err)
+	}
+
+	r := csv.NewReader(msoFile)
+	r.TrimLeadingSpace = true
+
+	records, err := r.ReadAll()
+	if err != nil {
+		log.Fatalf("Could not read MSO file: %s, Error: %s\n", msoListFilename, err)
+	}
+
+	for _, record := range records {
+		msoList = append(msoList, MsoType{record[0], record[1]})
+		msoLookup[record[0]] = record[1]
+	}
+	return msoList, msoLookup
+}
+
+// getS3Objects retrives the list of objects from AWS S3
+func getS3Objects(regionName, bucketName, prefix string, cdw bool) *s3.ListObjectsOutput {
+	var s *session.Session
+
+	if cdw {
+		s = session.New(&aws.Config{
+			Region:      aws.String(regionName),
+			Credentials: credentials.NewStaticCredentials(cdwAwsAccessKey, cdwAwsSecretKey, ""),
+		})
+	} else {
+		s = session.New(&aws.Config{
+			Region: aws.String(regionName),
+		})
+
+	}
+
+	svc := s3.New(s)
+
+	if verbose {
+		fmt.Printf("region: %s, bucket: %s, prefix: %s \n", regionName, bucketName, prefix)
+		fmt.Println(msoList)
+	}
+
+	params := &s3.ListObjectsInput{
+		Bucket: aws.String(bucketName),
+		Prefix: aws.String(prefix),
+	}
+
+	// Get the list of all objects
+	resp, err := svc.ListObjects(params)
+	if err != nil {
+		log.Println("Failed to list objects: ", err)
+		os.Exit(-1)
+	}
+
+	log.Println("Number of objects: ", len(resp.Contents))
+	return resp
+}
+
+// gotToFar checks if we got to Jan 01, 2016
+func gotToFar(date time.Time) bool {
+	yy, mm, dd := date.Date()
+
+	if mm == 1 && yy == 2016 && dd == 1 {
+		return true
+	}
+
+	return false
+}
+
+func buildDatePrefix(date time.Time) string {
+	yy, mm, dd := date.Date()
+
+	return fmt.Sprintf("%04d%02d%02d", yy, mm, dd)
+}
+
+// getLastDateFromDaap looks up when was the last successfull run of Daap
+func getLastDateFromDaap() (bool, string) {
+
+	lastDate := ""
+	found := false
+	date := time.Now()
+	// Starting from today
+	for {
+		lastDate = buildDatePrefix(date)
+		if verbose {
+			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
+
+		}
+		objects := getS3Objects(daapRegion, daapBucketName, daapPrefix+"/"+lastDate, false)
+		if len(objects.Contents) != len(msoList) {
+			date = date.AddDate(0, 0, -1)
+			if gotToFar(date) {
+				break
+			}
+			continue
+		}
+		found = true
+		msoCount := 0
+		for _, key := range objects.Contents {
+			if verbose {
+				log.Println("Key: ", *key.Key)
+			}
+
+			for _, mso := range msoList {
+				if strings.Contains(*key.Key, mso.Name) {
+					msoCount++
+				}
+			}
+		}
+
+		if msoCount != len(msoList) {
+			found = false
+		}
+
+		if found {
+			break
+		} else {
+			date = date.AddDate(0, 0, -1)
+			if gotToFar(date) {
+				break
+			}
+			continue
+		}
+	}
+	return found, lastDate
+}
+
+// getLastAvailable looks up for the last date available on CDW
+func getLastAvailable() string {
+
+	// TODO remove return
+	return ""
+
+	lastDate := ""
+	//	found := false
+	date := time.Now()
+
+	// Starting from today
+	for {
+		lastDate = buildDatePrefix(date)
+		if verbose {
+			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
+
+		}
+		objects := getS3Objects(cdwRegion, cdwBucketName, cdwPrefix, true)
+
+		for _, key := range objects.Contents {
+			// iterate through the list to match the dates range/mso name
+			// using the constracted below lookup string
+			if verbose {
+				log.Println("Key: ", *key.Key)
+			}
+
+		}
+	}
+	return ""
 }
 
 func main() {
@@ -138,9 +252,9 @@ func main() {
 		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -v %v\n",
 			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, verbose)
 	}
-	lastProcessedDate := getLastDateFromDaap()
+	found, lastProcessedDate := getLastDateFromDaap()
 
 	maxAvailableDate := getLastAvailable()
 
-	fmt.Print(lastProcessedDate, maxAvailableDate)
+	fmt.Println(found, lastProcessedDate, maxAvailableDate)
 }
