@@ -131,8 +131,8 @@ func getS3Objects(regionName, bucketName, prefix string, cdw bool) *s3.ListObjec
 	svc := s3.New(s)
 
 	if verbose {
-		fmt.Printf("region: %s, bucket: %s, prefix: %s \n", regionName, bucketName, prefix)
-		fmt.Println(msoList)
+		log.Printf("region: %s, bucket: %s, prefix: %s \n", regionName, bucketName, prefix)
+		log.Println(msoList)
 	}
 
 	params := &s3.ListObjectsInput{
@@ -177,10 +177,6 @@ func formatOutputDate(date time.Time) string {
 // getLastDateFromDaap looks up when was the last successfull run of Daap
 func getLastDateFromDaap() (bool, string, string) {
 	// offset is for aggregated report count = len(mso-list)+1 (aggregated report)
-	var offset int
-	if daapOnly {
-		offset = 1
-	}
 	lastDateAnyReport := "None"
 	lastDate := ""
 	found := false
@@ -198,7 +194,7 @@ func getLastDateFromDaap() (bool, string, string) {
 			lastDateAnyReport = formatOutputDate(date.AddDate(0, 0, -2))
 		}
 
-		if len(objects.Contents) != len(msoList)+offset {
+		if len(objects.Contents) != len(msoList)+1 && len(objects.Contents) != len(msoList) {
 			date = date.AddDate(0, 0, -1)
 			if gotToFar(date) {
 				break
