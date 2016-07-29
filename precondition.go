@@ -174,6 +174,49 @@ func formatOutputDate(date time.Time) string {
 	return fmt.Sprintf("%4d-%02d-%02d", year, int(month), day)
 }
 
+// getDatesForAggregates looks up when the last aggregated report date and last normal per-MSO viewership report date
+func getDatesForAggregates() (bool, string, string) {
+	lastAggregatedDate := "None"
+	lastAnyReportDate := "None"
+	lastDate := ""
+
+	found := false
+
+	date := time.Now()
+	// Starting from today
+	for {
+		lastDate = buildDatePrefix(date)
+		if verbose {
+			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
+
+		}
+		objects := getS3Objects(daapRegion, daapBucketName, daapPrefix+"/"+lastDate, false)
+
+		// We found the last date normail reports were generated
+		// Report minus two day, so aggregator could work properly
+		if lastAnyReportDate == "None" && len(objects.Contents) == len(msoList) {
+			lastAnyReportDate = formatOutputDate(date.AddDate(0, 0, -2))
+		}
+
+		// is there one report more than the number of MSO-s?
+		if len(objects.Contents) != len(msoList)+1 {
+			date = date.AddDate(0, 0, -1)
+			if gotToFar(date) {
+				break
+			}
+			continue
+		}
+
+		// we have the date when there are N reports for MSO's plus 1 = aggregated
+		// But report one day after - to start FROM
+		found = true
+		lastAggregatedDate = formatOutputDate(date.AddDate(0, 0, 1))
+		break
+	}
+
+	return found, lastAggregatedDate, lastAnyReportDate
+}
+
 // getLastDateFromDaap looks up when was the last successfull run of Daap
 func getLastDateFromDaap() (bool, string, string) {
 	// offset is for aggregated report count = len(mso-list)+1 (aggregated report)
@@ -301,7 +344,7 @@ func main() {
 	var maxAvailableDate, lastProcessedDate, lastAnyReport string
 
 	if daapOnly {
-		foundDaap, lastProcessedDate, lastAnyReport = getLastDateFromDaap()
+		foundDaap, lastProcessedDate, lastAnyReport = getDatesForAggregates()
 		fmt.Println(foundDaap, lastProcessedDate, lastAnyReport)
 		os.Exit(0)
 	}
