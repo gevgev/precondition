@@ -180,6 +180,7 @@ func getLastDateFromDaap() (bool, string, string) {
 	lastDateAnyReport := "None"
 	lastDate := ""
 	found := false
+
 	date := time.Now()
 	// Starting from today
 	for {
@@ -202,10 +203,17 @@ func getLastDateFromDaap() (bool, string, string) {
 			continue
 		}
 		found = true
+		withAggregated := false
+
 		msoCount := 0
 		for _, key := range objects.Contents {
 			if verbose {
 				log.Println("Key: ", *key.Key)
+			}
+
+			if strings.Contains(*key.Key, "viewership-report-") {
+				withAggregated = true
+				continue
 			}
 
 			for _, mso := range msoList {
@@ -220,8 +228,13 @@ func getLastDateFromDaap() (bool, string, string) {
 		}
 
 		if found {
-			// That was the last successfull run, now add one day after
-			lastDate = formatOutputDate(date.AddDate(0, 0, 1))
+			// That was the last successfull run, now add one day after if no aggregated reports
+			if withAggregated {
+				lastDate = formatOutputDate(date.AddDate(0, 0, 1))
+			} else {
+				lastDate = formatOutputDate(date)
+			}
+
 			break
 		} else {
 			date = date.AddDate(0, 0, -1)
@@ -257,7 +270,7 @@ func getLastAvailable() (bool, string) {
 				if verbose {
 					log.Println("Key: ", *key.Key)
 				}
-				if strings.Contains(*key.Key, "_"+lastDate) {
+				if strings.Contains(*key.Key, "_"+lastDate) && *key.Size > 14 {
 					msoCount++
 				}
 			}
