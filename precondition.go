@@ -195,7 +195,7 @@ func getDatesForAggregates() (bool, string, string) {
 		// We found the last date normail reports were generated
 		// Report minus two day, so aggregator could work properly
 		if lastAnyReportDate == "None" && len(objects.Contents) == len(msoList) {
-			lastAnyReportDate = formatOutputDate(date)
+			lastAnyReportDate = formatOutputDate(date.AddDate(0, 0, -2))
 		}
 
 		// is there one report more than the number of MSO-s?
