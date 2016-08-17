@@ -32,6 +32,7 @@ var (
 	verbose         bool
 	msoListFilename string
 	daapOnly        bool
+	exactMsos       bool
 
 	msoLookup map[string]string
 	msoList   []msoType
@@ -54,6 +55,7 @@ func init() {
 	flagVerbose := flag.Bool("v", false, "Verbose")
 
 	flagDaapOnly := flag.Bool("D", false, "Check only DaaP reports date")
+	flagExactMso := flag.Bool("E", false, "Check only DaaP reports date for exact MSO-s")
 
 	flag.Parse()
 
@@ -78,6 +80,7 @@ func init() {
 	msoListFilename = *flagMsoFileName
 	verbose = *flagVerbose
 	daapOnly = *flagDaapOnly
+	exactMsos = *flagExactMso
 
 	msoList, msoLookup = getMsoNamesList()
 }
@@ -290,6 +293,68 @@ func getLastDateFromDaap() (bool, string, string) {
 	return found, lastDate, lastDateAnyReport
 }
 
+// getLastDateFromDaap looks up when was the last successfull run of Daap
+func getLastDateFromDaapExactList() (bool, string) {
+	// offset is for aggregated report count = len(mso-list)+1 (aggregated report)
+	lastDateAnyReport := "None"
+	lastDate := ""
+	found := false
+
+	date := time.Now()
+	// Starting from today
+	for {
+		lastDate = buildDatePrefix(date)
+		if verbose {
+			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
+
+		}
+		objects := getS3Objects(daapRegion, daapBucketName, daapPrefix+"/"+lastDate, false)
+
+		if lastDateAnyReport == "None" && len(objects.Contents) > 0 {
+			lastDateAnyReport = formatOutputDate(date.AddDate(0, 0, -2))
+		}
+
+		if len(objects.Contents) < len(msoList) {
+			date = date.AddDate(0, 0, -1)
+			if gotToFar(date) {
+				break
+			}
+			continue
+		}
+		found = true
+
+		msoCount := 0
+		for _, key := range objects.Contents {
+			if verbose {
+				log.Println("Key: ", *key.Key)
+			}
+
+			for _, mso := range msoList {
+				if strings.Contains(*key.Key, mso.Name) {
+					msoCount++
+				}
+			}
+		}
+
+		if msoCount != len(msoList) {
+			found = false
+		}
+
+		if found {
+			lastDate = formatOutputDate(date)
+
+			break
+		} else {
+			date = date.AddDate(0, 0, -1)
+			if gotToFar(date) {
+				break
+			}
+			continue
+		}
+	}
+	return found, lastDate
+}
+
 // getLastAvailable looks up for the last date available on CDW
 func getLastAvailable() (bool, string) {
 
@@ -342,6 +407,12 @@ func main() {
 
 	var foundDaap, foundCDW bool
 	var maxAvailableDate, lastProcessedDate, lastAnyReport string
+
+	if exactMsos {
+		foundDaap, lastAnyReport = getLastDateFromDaapExactList()
+		fmt.Println(foundDaap, lastAnyReport, lastAnyReport)
+		os.Exit(0)
+	}
 
 	if daapOnly {
 		foundDaap, lastProcessedDate, lastAnyReport = getDatesForAggregates()
