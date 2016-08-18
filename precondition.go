@@ -409,8 +409,23 @@ func main() {
 	var maxAvailableDate, lastProcessedDate, lastAnyReport string
 
 	if exactMsos {
-		foundDaap, lastAnyReport = getLastDateFromDaapExactList()
-		fmt.Println(foundDaap, lastAnyReport, lastAnyReport)
+
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			foundDaap, lastProcessedDate = getLastDateFromDaapExactList()
+		}()
+
+		go func() {
+			defer wg.Done()
+			foundCDW, maxAvailableDate = getLastAvailable()
+		}()
+
+		wg.Wait()
+
+		fmt.Println(foundDaap, lastProcessedDate, foundCDW, maxAvailableDate)
+
 		os.Exit(0)
 	}
 
