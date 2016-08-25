@@ -401,8 +401,8 @@ func main() {
 	var wg sync.WaitGroup
 
 	if verbose {
-		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -v %v\n",
-			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, verbose)
+		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -dp %s -v %v\n",
+			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, daapPrefix, verbose)
 	}
 
 	var foundDaap, foundCDW bool
