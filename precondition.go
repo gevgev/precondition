@@ -23,8 +23,9 @@ var (
 	cdwAwsAccessKey string
 	cdwAwsSecretKey string
 
-	cdwPrefix  string
-	daapPrefix string
+	cdwPrefix   string
+	daapPrefix  string
+	daapPrefix2 string
 
 	daapRegion string
 	cdwRegion  string
@@ -45,7 +46,8 @@ func init() {
 	flagCdwBucketName := flag.String("b", "rovi-cdw", "CDW S3 Bucket name")
 	flagDaapBucketName := flag.String("d", "daap-viewership-reports", "CDW S3 Bucket name")
 
-	flagDaapPrefix := flag.String("dp", "cdw-viewership-reports", "Prefix for DaaP S3 bucket")
+	flagDaapPrefix := flag.String("dph", "hh_count2d", "Prefix for DaaP S3 hh count bucket")
+	flagDaapPrefix2 := flag.String("dpa", "viewership2d", "Prefix for DaaP S3 aggregated bucket")
 	flagCdwPrefix := flag.String("cp", "event/tv_viewership", "Prefix for CDW S3 bukcet")
 
 	flagDaapRegion := flag.String("dr", "us-west-2", "Daap S3 Region")
@@ -73,6 +75,7 @@ func init() {
 
 	cdwPrefix = *flagCdwPrefix
 	daapPrefix = *flagDaapPrefix
+	daapPrefix2 = *flagDaapPrefix2
 
 	cdwRegion = *flagCdwRegion
 	daapRegion = *flagDaapRegion
@@ -190,7 +193,8 @@ func getDatesForAggregates() (bool, string, string) {
 	for {
 		lastDate = buildDatePrefix(date)
 		if verbose {
-			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
+			log.Println("Prefix hh-count: ", daapPrefix+"/"+lastDate)
+			log.Println("Prefix aggregated: ", daapPrefix2+"/"+lastDate)
 
 		}
 		objects := getS3Objects(daapRegion, daapBucketName, daapPrefix+"/"+lastDate, false)
@@ -201,8 +205,8 @@ func getDatesForAggregates() (bool, string, string) {
 			lastAnyReportDate = formatOutputDate(date.AddDate(0, 0, -2))
 		}
 
-		// is there one report more than the number of MSO-s?
-		if len(objects.Contents) != len(msoList)+1 {
+		// is there are reports for the number of MSO-s?
+		if len(objects.Contents) != len(msoList) {
 			date = date.AddDate(0, 0, -1)
 			if gotToFar(date) {
 				break
@@ -210,7 +214,7 @@ func getDatesForAggregates() (bool, string, string) {
 			continue
 		}
 
-		// we have the date when there are N reports for MSO's plus 1 = aggregated
+		// we have the date when there are N reports for MSO's aggregated
 		// But report one day after - to start FROM
 		found = true
 		lastAggregatedDate = formatOutputDate(date.AddDate(0, 0, 1))
@@ -401,33 +405,12 @@ func main() {
 	var wg sync.WaitGroup
 
 	if verbose {
-		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -dp %s -v %v\n",
-			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, daapPrefix, verbose)
+		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -dph %s -dpa %s -v %v\n",
+			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, daapPrefix, daapPrefix2, verbose)
 	}
 
 	var foundDaap, foundCDW bool
 	var maxAvailableDate, lastProcessedDate, lastAnyReport string
-
-	if exactMsos {
-
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			foundDaap, lastProcessedDate = getLastDateFromDaapExactList()
-		}()
-
-		go func() {
-			defer wg.Done()
-			foundCDW, maxAvailableDate = getLastAvailable()
-		}()
-
-		wg.Wait()
-
-		fmt.Println(foundDaap, lastProcessedDate, foundCDW, maxAvailableDate)
-
-		os.Exit(0)
-	}
 
 	if daapOnly {
 		foundDaap, lastProcessedDate, lastAnyReport = getDatesForAggregates()
