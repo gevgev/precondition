@@ -23,9 +23,8 @@ var (
 	cdwAwsAccessKey string
 	cdwAwsSecretKey string
 
-	cdwPrefix   string
-	daapPrefix  string
-	daapPrefix2 string
+	cdwPrefix  string
+	daapPrefix string
 
 	daapRegion string
 	cdwRegion  string
@@ -44,10 +43,9 @@ func init() {
 	flagCdwAwsSecretKey := flag.String("S", "", "AWS Secret Key for CDW S3")
 
 	flagCdwBucketName := flag.String("b", "rovi-cdw", "CDW S3 Bucket name")
-	flagDaapBucketName := flag.String("d", "daap-viewership-reports", "CDW S3 Bucket name")
+	flagDaapBucketName := flag.String("d", "daaprawcdwdata", "CDW S3 Bucket name")
 
-	flagDaapPrefix := flag.String("dph", "hh_count2d", "Prefix for DaaP S3 hh count bucket")
-	flagDaapPrefix2 := flag.String("dpa", "viewership2d", "Prefix for DaaP S3 aggregated bucket")
+	flagDaapPrefix := flag.String("dp", "hh_count2d", "Prefix for DaaP S3 hh count bucket")
 	flagCdwPrefix := flag.String("cp", "event/tv_viewership", "Prefix for CDW S3 bukcet")
 
 	flagDaapRegion := flag.String("dr", "us-west-2", "Daap S3 Region")
@@ -75,7 +73,6 @@ func init() {
 
 	cdwPrefix = *flagCdwPrefix
 	daapPrefix = *flagDaapPrefix
-	daapPrefix2 = *flagDaapPrefix2
 
 	cdwRegion = *flagCdwRegion
 	daapRegion = *flagDaapRegion
@@ -181,9 +178,8 @@ func formatOutputDate(date time.Time) string {
 }
 
 // getDatesForAggregates looks up when the last aggregated report date and last normal per-MSO viewership report date
-func getDatesForAggregates() (bool, string, string) {
+func getDatesForAggregates() (bool, string) {
 	lastAggregatedDate := "None"
-	lastAnyReportDate := "None"
 	lastDate := ""
 
 	found := false
@@ -193,17 +189,10 @@ func getDatesForAggregates() (bool, string, string) {
 	for {
 		lastDate = buildDatePrefix(date)
 		if verbose {
-			log.Println("Prefix hh-count: ", daapPrefix+"/"+lastDate)
-			log.Println("Prefix aggregated: ", daapPrefix2+"/"+lastDate)
+			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
 
 		}
 		objects := getS3Objects(daapRegion, daapBucketName, daapPrefix+"/"+lastDate, false)
-
-		// We found the last date normail reports were generated
-		// Report minus two day, so aggregator could work properly
-		if lastAnyReportDate == "None" && len(objects.Contents) == len(msoList) {
-			lastAnyReportDate = formatOutputDate(date.AddDate(0, 0, -2))
-		}
 
 		// is there are reports for the number of MSO-s?
 		if len(objects.Contents) != len(msoList) {
@@ -217,11 +206,11 @@ func getDatesForAggregates() (bool, string, string) {
 		// we have the date when there are N reports for MSO's aggregated
 		// But report one day after - to start FROM
 		found = true
-		lastAggregatedDate = formatOutputDate(date.AddDate(0, 0, 1))
+		lastAggregatedDate = formatOutputDate(date)
 		break
 	}
 
-	return found, lastAggregatedDate, lastAnyReportDate
+	return found, lastAggregatedDate
 }
 
 // getLastDateFromDaap looks up when was the last successfull run of Daap
@@ -297,68 +286,6 @@ func getLastDateFromDaap() (bool, string, string) {
 	return found, lastDate, lastDateAnyReport
 }
 
-// getLastDateFromDaap looks up when was the last successfull run of Daap
-func getLastDateFromDaapExactList() (bool, string) {
-	// offset is for aggregated report count = len(mso-list)+1 (aggregated report)
-	lastDateAnyReport := "None"
-	lastDate := ""
-	found := false
-
-	date := time.Now()
-	// Starting from today
-	for {
-		lastDate = buildDatePrefix(date)
-		if verbose {
-			log.Println("Prefix: ", daapPrefix+"/"+lastDate)
-
-		}
-		objects := getS3Objects(daapRegion, daapBucketName, daapPrefix+"/"+lastDate, false)
-
-		if lastDateAnyReport == "None" && len(objects.Contents) > 0 {
-			lastDateAnyReport = formatOutputDate(date.AddDate(0, 0, -2))
-		}
-
-		if len(objects.Contents) < len(msoList) {
-			date = date.AddDate(0, 0, -1)
-			if gotToFar(date) {
-				break
-			}
-			continue
-		}
-		found = true
-
-		msoCount := 0
-		for _, key := range objects.Contents {
-			if verbose {
-				log.Println("Key: ", *key.Key)
-			}
-
-			for _, mso := range msoList {
-				if strings.Contains(*key.Key, mso.Name) {
-					msoCount++
-				}
-			}
-		}
-
-		if msoCount != len(msoList) {
-			found = false
-		}
-
-		if found {
-			lastDate = formatOutputDate(date)
-
-			break
-		} else {
-			date = date.AddDate(0, 0, -1)
-			if gotToFar(date) {
-				break
-			}
-			continue
-		}
-	}
-	return found, lastDate
-}
-
 // getLastAvailable looks up for the last date available on CDW
 func getLastAvailable() (bool, string) {
 
@@ -405,16 +332,16 @@ func main() {
 	var wg sync.WaitGroup
 
 	if verbose {
-		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -dph %s -dpa %s -v %v\n",
-			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, daapPrefix, daapPrefix2, verbose)
+		log.Printf("Params provided: -K %s, -S %s, -b %s, -d %s, -dp %s -v %v\n",
+			cdwAwsAccessKey, cdwAwsSecretKey, cdwBucketName, daapBucketName, daapPrefix, verbose)
 	}
 
 	var foundDaap, foundCDW bool
-	var maxAvailableDate, lastProcessedDate, lastAnyReport string
+	var maxAvailableDate, lastProcessedDate string
 
 	if daapOnly {
-		foundDaap, lastProcessedDate, lastAnyReport = getDatesForAggregates()
-		fmt.Println(foundDaap, lastProcessedDate, lastAnyReport)
+		foundDaap, lastProcessedDate = getDatesForAggregates()
+		fmt.Println(foundDaap, lastProcessedDate)
 		os.Exit(0)
 	}
 
